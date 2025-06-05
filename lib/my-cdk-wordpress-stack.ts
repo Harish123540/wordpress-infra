@@ -7,7 +7,6 @@ import * as ecs_patterns from 'aws-cdk-lib/aws-ecs-patterns';
 import * as codepipeline from 'aws-cdk-lib/aws-codepipeline';
 import * as codepipeline_actions from 'aws-cdk-lib/aws-codepipeline-actions';
 import * as codebuild from 'aws-cdk-lib/aws-codebuild';
-import * as codecommit from 'aws-cdk-lib/aws-codecommit';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 
 export class MyCdkWordpressStack extends cdk.Stack {
@@ -82,7 +81,7 @@ export class MyCdkWordpressStack extends cdk.Stack {
     const dockerBuildProject = new codebuild.PipelineProject(this, 'DockerBuildProject', {
       environment: {
         buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
-        privileged: true, // Docker-in-Docker
+        privileged: true,
       },
       environmentVariables: {
         DOCKER_HUB_USERNAME: { value: 'ashish8979' },
@@ -114,13 +113,16 @@ export class MyCdkWordpressStack extends cdk.Stack {
       pipelineName: 'WordpressPipeline',
     });
 
-    // 🔹 Single Source Stage (CodeCommit + GitHub)
+    // 🔹 Single Source Stage - BOTH from GitHub
     pipeline.addStage({
       stageName: 'Source',
       actions: [
-        new codepipeline_actions.CodeCommitSourceAction({
+        new codepipeline_actions.GitHubSourceAction({
           actionName: 'Infra_Source',
-          repository: codecommit.Repository.fromRepositoryName(this, 'InfraRepo', 'my-infra-repo'),
+          owner: 'Harish123540',
+          repo: 'wordpress-infra',
+          branch: 'master',
+          oauthToken: githubTokenSecret.secretValue,
           output: infraSourceOutput,
         }),
         new codepipeline_actions.GitHubSourceAction({
@@ -171,7 +173,6 @@ export class MyCdkWordpressStack extends cdk.Stack {
       ],
     });
 
-    // ✅ ECS auto-updates with ECR:latest
   }
 }
 
