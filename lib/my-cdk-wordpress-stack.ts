@@ -228,4 +228,3 @@ export class MyCdkWordpressStack extends cdk.Stack {
     });
   }
 }
-
