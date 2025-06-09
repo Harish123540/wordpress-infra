@@ -87,6 +87,8 @@ export class MyCdkWordpressStack extends cdk.Stack {
               'docker build -t my-wordpress-app .',
               'docker tag my-wordpress-app:latest 975826764450.dkr.ecr.ap-south-1.amazonaws.com/my-wordpress-app:latest',
               'docker push 975826764450.dkr.ecr.ap-south-1.amazonaws.com/my-wordpress-app:latest',
+               `echo '[{"name":"WordpressContainer","imageUri":"975826764450.dkr.ecr.ap-south-1.amazonaws.com/my-wordpress-app:latest"}]' > imagedefinitions.json`
+              
             ],
           },
         },
