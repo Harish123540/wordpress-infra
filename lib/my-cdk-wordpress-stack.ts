@@ -3,17 +3,21 @@ import { Construct } from 'constructs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
-import * as ecs_patterns from 'aws-cdk-lib/aws-ecs-patterns';
 import * as codepipeline from 'aws-cdk-lib/aws-codepipeline';
 import * as codepipeline_actions from 'aws-cdk-lib/aws-codepipeline-actions';
 import * as codebuild from 'aws-cdk-lib/aws-codebuild';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as iam from 'aws-cdk-lib/aws-iam';
+
 export class MyCdkWordpressStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
     // 🔹 VPC
-    const vpc = new ec2.Vpc(this, 'MyVpc', { maxAzs: 2 });
+    const vpc = new ec2.Vpc(this, 'MyVpc', {
+      maxAzs: 2,
+      natGateways: 1,
+    });
 
     // 🔹 ECS Cluster
     const cluster = new ecs.Cluster(this, 'MyCluster', { vpc });
@@ -23,37 +27,49 @@ export class MyCdkWordpressStack extends cdk.Stack {
       repositoryName: 'my-wordpress-app',
     });
 
+    // 🔹 ECS Task Definition
+    const taskDef = new ecs.FargateTaskDefinition(this, 'MyTaskDef', {
+      cpu: 512,
+      memoryLimitMiB: 1024,
+    });
+
+    taskDef.addContainer('WordpressContainer', {
+      image: ecs.ContainerImage.fromEcrRepository(ecrRepo, 'latest'),
+      portMappings: [{ containerPort: 80 }],
+      logging: ecs.LogDriver.awsLogs({ streamPrefix: 'wordpress' }),
+    });
+
+    // 🔹 Security group
+    const sg = new ec2.SecurityGroup(this, 'WordpressSG', { vpc });
+    sg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80), 'Allow HTTP');
+
     // 🔹 ECS Service
-    const fargateService = new ecs_patterns.ApplicationLoadBalancedFargateService(this, 'MyFargateService', {
+    new ecs.FargateService(this, 'MyFargateService', {
       cluster,
-      taskImageOptions: {
-        image: ecs.ContainerImage.fromEcrRepository(ecrRepo, 'latest'),
-        containerPort: 80,
-      },
+      taskDefinition: taskDef,
       desiredCount: 1,
-      publicLoadBalancer: true,
+      assignPublicIp: true,
+      securityGroups: [sg],
+      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
     });
 
-    // 🔹 Output Load Balancer DNS
-    new cdk.CfnOutput(this, 'LoadBalancerDNS', {
-      value: fargateService.loadBalancer.loadBalancerDnsName,
-      description: 'Public URL of WordPress site',
+    new cdk.CfnOutput(this, 'ServicePublicIP', {
+      value: 'Dynamic public IP assigned by ECS task (check in ECS console).',
     });
 
-    // 🔹 Secrets Manager GitHub token
+    // 🔹 GitHub token
     const githubTokenSecret = secretsmanager.Secret.fromSecretNameV2(this, 'GithubToken', 'github-token');
 
-    // 🔹 Pipeline Artifacts
+    // 🔹 Artifacts
     const infraSourceOutput = new codepipeline.Artifact('InfraSourceOutput');
     const appSourceOutput = new codepipeline.Artifact('AppSourceOutput');
+    const testOutput = new codepipeline.Artifact('TestOutput');
     const buildOutput = new codepipeline.Artifact('BuildOutput');
 
+   
     // 🔹 Docker Build Project
     const dockerBuildProject = new codebuild.PipelineProject(this, 'DockerBuildProject', {
-      environment: {
-        buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
-        privileged: true,
-      },
+      environment: { buildImage: codebuild.LinuxBuildImage.STANDARD_7_0, privileged: true },
       environmentVariables: {
         DOCKER_HUB_USERNAME: { value: 'ashish8979' },
         DOCKER_HUB_PASSWORD: { value: 'ashishchaudhary-12345' },
@@ -65,43 +81,39 @@ export class MyCdkWordpressStack extends cdk.Stack {
             commands: [
               'echo Logging in to DockerHub...',
               'echo $DOCKER_HUB_PASSWORD | docker login --username $DOCKER_HUB_USERNAME --password-stdin',
-              'aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 739275466771.dkr.ecr.ap-south-1.amazonaws.com'
+              'aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 975826764450.dkr.ecr.ap-south-1.amazonaws.com',
             ],
           },
           build: {
             commands: [
               'docker build -t my-wordpress-app .',
-              'docker tag my-wordpress-app:latest 739275466771.dkr.ecr.ap-south-1.amazonaws.com/my-wordpress-app:latest',
-              'docker push 739275466771.dkr.ecr.ap-south-1.amazonaws.com/my-wordpress-app:latest'
+              'docker tag my-wordpress-app:latest 975826764450.dkr.ecr.ap-south-1.amazonaws.com/my-wordpress-app:latest',
+              'docker push 975826764450.dkr.ecr.ap-south-1.amazonaws.com/my-wordpress-app:latest',
             ],
           },
         },
-        artifacts: {
-          files: ['imagedefinitions.json'],
-        },
+        artifacts: { files: ['imagedefinitions.json'] },
       }),
     });
 
-    // 🔹 Infra Deploy Project (CDK deploy)
+    // 🔹 Infra Deploy Project
     const infraDeployProject = new codebuild.PipelineProject(this, 'InfraDeployProject', {
       environment: { buildImage: codebuild.LinuxBuildImage.STANDARD_7_0 },
       buildSpec: codebuild.BuildSpec.fromObject({
         version: '0.2',
         phases: {
-          install: {
-            commands: [
-              'npm install -g aws-cdk',
-              'npm ci'
-            ],
-          },
-          build: {
-            commands: [
-              'cdk bootstrap',
-              'cdk deploy --require-approval never'
-            ],
-          },
+          install: { commands: ['npm install -g aws-cdk', 'npm ci'] },
+          build: { commands: ['cdk bootstrap', 'cdk deploy --require-approval never'] },
         },
       }),
+    });
+
+    // 🔹 Add IAM permissions to projects
+    [testProject, dockerBuildProject, infraDeployProject].forEach(project => {
+      project.addToRolePolicy(new iam.PolicyStatement({
+        actions: ['ecr:*', 'ecs:*', 'ec2:*', 'iam:PassRole', 'logs:*', 'cloudformation:*', 'ssm:*'],
+        resources: ['*'],
+      }));
     });
 
     // 🔹 Pipeline
@@ -109,7 +121,7 @@ export class MyCdkWordpressStack extends cdk.Stack {
       pipelineName: 'WordpressPipeline',
     });
 
-    // 🔹 Source Stage (Infra + App repo)
+    // 🔹 Source Stage
     pipeline.addStage({
       stageName: 'Source',
       actions: [
@@ -132,7 +144,9 @@ export class MyCdkWordpressStack extends cdk.Stack {
       ],
     });
 
-    // 🔹 Build Container Image Stage
+  
+
+    // 🔹 Build Stage
     pipeline.addStage({
       stageName: 'Build-Container',
       actions: [
@@ -145,12 +159,12 @@ export class MyCdkWordpressStack extends cdk.Stack {
       ],
     });
 
-    // 🔹 Deploy Stage (CDK deploy)
+    // 🔹 Build-and-Deploy-Infrastructure Stage
     pipeline.addStage({
-      stageName: 'Deploy',
+      stageName: 'Build-and-Deploy-Infrastructure',
       actions: [
         new codepipeline_actions.CodeBuildAction({
-          actionName: 'CDK_Deploy',
+          actionName: 'Infra_Deploy',
           project: infraDeployProject,
           input: infraSourceOutput,
         }),
