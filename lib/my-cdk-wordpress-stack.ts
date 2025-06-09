@@ -357,8 +357,16 @@ export class MyCdkWordpressStack extends cdk.Stack {
     ecrRepo.grantPull(fargateService.taskDefinition.executionRole!);
 
     // Grant ECS permissions to update project
-    cluster.grantContainerInsights(ecsUpdateProject);
-    fargateService.grantDesiredCountAutoScaling(ecsUpdateProject);
+    ecsUpdateProject.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        'ecs:UpdateService',
+        'ecs:DescribeServices',
+        'ecs:DescribeTasks',
+        'ecs:ListTasks',
+        'application-autoscaling:*'
+      ],
+      resources: ['*']
+    }));
 
     // 🔹 CodePipeline
     const pipeline = new codepipeline.Pipeline(this, 'MyWordpressPipeline', {
