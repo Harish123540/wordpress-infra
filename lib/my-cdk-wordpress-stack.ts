@@ -71,7 +71,7 @@ export class MyCdkWordpressStack extends cdk.Stack {
         WORDPRESS_DB_PASSWORD: ecs.Secret.fromSecretsManager(dbInstance.secret!, 'password'),
       },
       healthCheck: {
-        command: ['CMD-SHELL', 'curl -f http://localhost:80/ || exit 1'],
+        command: ['CMD-SHELL', 'curl -f http://localhost/ || exit 1'],
         interval: cdk.Duration.seconds(30),
         timeout: cdk.Duration.seconds(5),
         retries: 3,
@@ -96,13 +96,6 @@ export class MyCdkWordpressStack extends cdk.Stack {
       assignPublicIp: true,
       securityGroups: [ecsSg],
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
-      deploymentConfiguration: {
-        maximumPercent: 200,
-        minimumHealthyPercent: 50,
-      },
-      circuitBreaker: {
-        rollback: true,
-      },
     });
 
     // Outputs
